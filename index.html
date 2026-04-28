@@ -1,17 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
     <title>神門穴定位 - 手機穩定版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-      body { background: #000; color: #0f0; text-align: center; font-family: sans-serif; margin: 0; overflow: hidden; }
+      body {
+        background: #000;
+        color: #0f0;
+        text-align: center;
+        font-family: sans-serif;
+        margin: 0;
+        overflow: hidden;
+      }
       #status {
-        position: absolute; top: 0; width: 100%; z-index: 10;
-        padding: 15px 0; background: rgba(0, 40, 0, 0.8);
-        border-bottom: 2px solid #f00; font-size: 14px;
+        position: absolute;
+        top: 0;
+        width: 100%;
+        z-index: 10;
+        padding: 15px 0;
+        background: rgba(0, 40, 0, 0.8);
+        border-bottom: 2px solid #f00;
+        font-size: 14px;
       }
       canvas {
         display: block;
@@ -33,7 +48,8 @@
 
       // 1. 初始化 Hands
       const hands = new Hands({
-        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
       });
 
       hands.setOptions({
@@ -46,9 +62,21 @@
       hands.onResults(onResults);
 
       function getPalmFacingAngle(landmarks) {
-        const v1 = { x: landmarks[5].x - landmarks[0].x, y: landmarks[5].y - landmarks[0].y, z: landmarks[5].z - landmarks[0].z };
-        const v2 = { x: landmarks[17].x - landmarks[0].x, y: landmarks[17].y - landmarks[0].y, z: landmarks[17].z - landmarks[0].z };
-        const normal = { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x };
+        const v1 = {
+          x: landmarks[5].x - landmarks[0].x,
+          y: landmarks[5].y - landmarks[0].y,
+          z: landmarks[5].z - landmarks[0].z,
+        };
+        const v2 = {
+          x: landmarks[17].x - landmarks[0].x,
+          y: landmarks[17].y - landmarks[0].y,
+          z: landmarks[17].z - landmarks[0].z,
+        };
+        const normal = {
+          x: v1.y * v2.z - v1.z * v2.y,
+          y: v1.z * v2.x - v1.x * v2.z,
+          z: v1.x * v2.y - v1.y * v2.x,
+        };
         const length = Math.sqrt(normal.x ** 2 + normal.y ** 2 + normal.z ** 2);
         return -normal.z / (length + 0.0001);
       }
@@ -56,20 +84,32 @@
       function onResults(results) {
         // 動態適配解析度
         if (results.image) {
-          if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
+          if (
+            canvasElement.width !== results.image.width ||
+            canvasElement.height !== results.image.height
+          ) {
             canvasElement.width = results.image.width;
             canvasElement.height = results.image.height;
           }
 
           canvasCtx.save();
           canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-          canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+          canvasCtx.drawImage(
+            results.image,
+            0,
+            0,
+            canvasElement.width,
+            canvasElement.height,
+          );
 
           const statusEl = document.getElementById("status");
           const W = canvasElement.width;
           const H = canvasElement.height;
 
-          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+          if (
+            results.multiHandLandmarks &&
+            results.multiHandLandmarks.length > 0
+          ) {
             const landmarks = results.multiHandLandmarks[0];
             const handedness = results.multiHandedness[0].label;
 
@@ -77,9 +117,12 @@
             const dy = (landmarks[0].y - landmarks[9].y) * H;
             const handSize = Math.sqrt(dx * dx + dy * dy);
             const cosTheta = getPalmFacingAngle(landmarks);
-            
+
             // 手機端鏡像修正判斷
-            const isPalmSide = handedness === "Right" ? landmarks[2].x < landmarks[17].x : landmarks[2].x > landmarks[17].x;
+            const isPalmSide =
+              handedness === "Right"
+                ? landmarks[2].x < landmarks[17].x
+                : landmarks[2].x > landmarks[17].x;
 
             if (!isPalmSide) {
               statusEl.innerText = "⚠️ 偵測到手背：請翻至掌心";
@@ -112,7 +155,7 @@
         canvasCtx.fill();
         canvasCtx.shadowBlur = 0;
         canvasCtx.fillStyle = "#fff";
-        canvasCtx.font = `bold ${Math.round(canvasElement.width/20)}px Arial`;
+        canvasCtx.font = `bold ${Math.round(canvasElement.width / 20)}px Arial`;
         canvasCtx.fillText(label, x - 40, y + 60);
       }
 
@@ -122,18 +165,21 @@
           await hands.send({ image: videoElement });
         },
         // 明確定義手機端的相機偏好
-        facingMode: 'user', // 強制前鏡頭自拍模式
+        facingMode: "user", // 強制前鏡頭自拍模式
         width: 1280, // 請求高解析度，但會由瀏覽器自動縮放
-        height: 720
+        height: 720,
       });
 
       // 執行啟動並處理報錯
-      camera.start().then(() => {
-          document.getElementById('status').innerText = "🔍 正在尋找手掌...";
-      }).catch(err => {
-          document.getElementById('status').innerText = "❌ 相機錯誤: " + err;
+      camera
+        .start()
+        .then(() => {
+          document.getElementById("status").innerText = "🔍 正在尋找手掌...";
+        })
+        .catch((err) => {
+          document.getElementById("status").innerText = "❌ 相機錯誤: " + err;
           console.error(err);
-      });
+        });
     </script>
   </body>
 </html>
