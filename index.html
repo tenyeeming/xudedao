@@ -1,0 +1,175 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>神門穴定位 - 距離與角度雙重監控版</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <style>
+      body {
+        background: #000;
+        color: #0f0;
+        text-align: center;
+        font-family: "Segoe UI", monospace;
+        margin: 0;
+        overflow: hidden;
+      }
+      #status {
+        padding: 15px;
+        background: rgba(0, 40, 0, 0.9);
+        border-bottom: 2px solid #f00;
+        font-size: 1.1em;
+        transition: color 0.3s ease;
+      }
+      canvas {
+        border-radius: 0 0 20px 20px;
+        width: 95vw;
+        max-width: 800px;
+        box-shadow: 0 0 20px rgba(255, 0, 0, 0.2);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="status">系統校準中：請正對手掌</div>
+    <video id="input_video" hidden></video>
+    <canvas id="output_canvas" width="640" height="480"></canvas>
+
+    <script>
+      const videoElement = document.getElementById("input_video");
+      const canvasElement = document.getElementById("output_canvas");
+      const canvasCtx = canvasElement.getContext("2d");
+
+      const hands = new Hands({
+        locateFile: (file) =>
+          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.8,
+        minTrackingConfidence: 0.8,
+      });
+
+      hands.onResults(onResults);
+
+      // 1. 法向量夾角計算
+      function getPalmFacingAngle(landmarks) {
+        const v1 = {
+          x: landmarks[5].x - landmarks[0].x,
+          y: landmarks[5].y - landmarks[0].y,
+          z: landmarks[5].z - landmarks[0].z,
+        };
+        const v2 = {
+          x: landmarks[17].x - landmarks[0].x,
+          y: landmarks[17].y - landmarks[0].y,
+          z: landmarks[17].z - landmarks[0].z,
+        };
+        const normal = {
+          x: v1.y * v2.z - v1.z * v2.y,
+          y: v1.z * v2.x - v1.x * v2.z,
+          z: v1.x * v2.y - v1.y * v2.x,
+        };
+        const length = Math.sqrt(normal.x ** 2 + normal.y ** 2 + normal.z ** 2);
+        return -normal.z / length;
+      }
+
+      function onResults(results) {
+        canvasCtx.save();
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        canvasCtx.drawImage(
+          results.image,
+          0,
+          0,
+          canvasElement.width,
+          canvasElement.height,
+        );
+
+        const statusEl = document.getElementById("status");
+
+        if (
+          results.multiHandLandmarks &&
+          results.multiHandLandmarks.length > 0
+        ) {
+          const landmarks = results.multiHandLandmarks[0];
+          const handedness = results.multiHandedness[0].label;
+
+          // --- A. 距離判定 (寬鬆設定) ---
+          // 計算手腕(0)到中指根部(9)的像素距離
+          const dx = (landmarks[0].x - landmarks[9].x) * 640;
+          const dy = (landmarks[0].y - landmarks[9].y) * 480;
+          const handSize = Math.sqrt(dx * dx + dy * dy);
+
+          // --- B. 角度判定 ---
+          const cosTheta = getPalmFacingAngle(landmarks);
+
+          // --- C. 正反判定 ---
+          const thumbBase = landmarks[2];
+          const pinkyBase = landmarks[17];
+          const isPalmSide =
+            handedness === "Right"
+              ? thumbBase.x < pinkyBase.x
+              : thumbBase.x > pinkyBase.x;
+
+          // --- 綜合判斷邏輯 ---
+          if (!isPalmSide) {
+            statusEl.innerText = "⚠️ 偵測到手背：請翻至掌心";
+            statusEl.style.color = "orange";
+          } else if (cosTheta <= 0.5) {
+            // 角度放寬到約 60 度
+            statusEl.innerText = "⚠️ 角度傾斜：請正對鏡頭";
+            statusEl.style.color = "yellow";
+          } else if (handSize < 80) {
+            // 寬鬆的遠距離界限
+            statusEl.innerText = "⚠️ 請靠近一點 (太遠)";
+            statusEl.style.color = "cyan";
+          } else if (handSize > 300) {
+            // 寬鬆的近距離界限
+            statusEl.innerText = "⚠️ 請拿遠一點 (太近)";
+            statusEl.style.color = "red";
+          } else {
+            // 通過所有檢查，顯示穴位
+            statusEl.innerText = "✅ 定位成功：神門穴 (HT7)";
+            statusEl.style.color = "#0f0";
+
+            const smX = (landmarks[0].x * 0.65 + landmarks[17].x * 0.35) * 640;
+            const smY = landmarks[0].y * 480;
+            drawAcupoint(smX, smY, "神門穴 (HT7)");
+          }
+        } else {
+          statusEl.innerText = "🔍 等待手部進入偵測區域...";
+          statusEl.style.color = "#fff";
+        }
+        canvasCtx.restore();
+      }
+
+      function drawAcupoint(x, y, label) {
+        // 呼吸效果
+        const pulse = 10 + Math.sin(Date.now() / 200) * 2;
+        canvasCtx.shadowBlur = 20;
+        canvasCtx.shadowColor = "red";
+        canvasCtx.fillStyle = "red";
+        canvasCtx.beginPath();
+        canvasCtx.arc(x, y, pulse, 0, Math.PI * 2);
+        canvasCtx.fill();
+
+        canvasCtx.shadowBlur = 0;
+        canvasCtx.fillStyle = "#fff";
+        canvasCtx.font = "bold 20px Arial";
+        canvasCtx.strokeStyle = "#000";
+        canvasCtx.lineWidth = 3;
+        canvasCtx.strokeText(label, x - 50, y + 45);
+        canvasCtx.fillText(label, x - 50, y + 45);
+      }
+
+      const camera = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        width: 640,
+        height: 480,
+      });
+      camera.start();
+    </script>
+  </body>
+</html>
