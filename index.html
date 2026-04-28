@@ -1,44 +1,28 @@
-<!doctype html>
+<!DOCTYPE html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
-    <title>神門穴定位 - 手機全自適應版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>神門穴定位 - 手機穩定版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-      body {
-        background: #000;
-        color: #0f0;
-        text-align: center;
-        font-family: sans-serif;
-        margin: 0;
-        overflow: hidden;
-      }
+      body { background: #000; color: #0f0; text-align: center; font-family: sans-serif; margin: 0; overflow: hidden; }
       #status {
-        position: absolute;
-        top: 0;
-        width: 100%;
-        z-index: 10;
-        padding: 12px 0;
-        background: rgba(0, 40, 0, 0.8);
-        border-bottom: 2px solid #f00;
-        font-size: 14px;
+        position: absolute; top: 0; width: 100%; z-index: 10;
+        padding: 15px 0; background: rgba(0, 40, 0, 0.8);
+        border-bottom: 2px solid #f00; font-size: 14px;
       }
-      /* 關鍵：讓畫布填滿螢幕但不變形 */
       canvas {
         display: block;
         width: 100vw;
         height: 100vh;
-        object-fit: cover; /* 就像手機相機 App 一樣填滿 */
+        object-fit: cover;
       }
     </style>
   </head>
   <body>
-    <div id="status">正在同步手機鏡頭...</div>
+    <div id="status">⚠️ 正在啟動相機，請點擊允許...</div>
     <video id="input_video" hidden playsinline></video>
     <canvas id="output_canvas"></canvas>
 
@@ -47,112 +31,79 @@
       const canvasElement = document.getElementById("output_canvas");
       const canvasCtx = canvasElement.getContext("2d");
 
+      // 1. 初始化 Hands
       const hands = new Hands({
-        locateFile: (file) =>
-          `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
       });
 
       hands.setOptions({
         maxNumHands: 1,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.7,
-        minTrackingConfidence: 0.7,
+        modelComplexity: 0, // 手機端強烈建議改用 0 (Lite版)，啟動最快
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
       });
 
+      hands.onResults(onResults);
+
       function getPalmFacingAngle(landmarks) {
-        const v1 = {
-          x: landmarks[5].x - landmarks[0].x,
-          y: landmarks[5].y - landmarks[0].y,
-          z: landmarks[5].z - landmarks[0].z,
-        };
-        const v2 = {
-          x: landmarks[17].x - landmarks[0].x,
-          y: landmarks[17].y - landmarks[0].y,
-          z: landmarks[17].z - landmarks[0].z,
-        };
-        const normal = {
-          x: v1.y * v2.z - v1.z * v2.y,
-          y: v1.z * v2.x - v1.x * v2.z,
-          z: v1.x * v2.y - v1.y * v2.x,
-        };
+        const v1 = { x: landmarks[5].x - landmarks[0].x, y: landmarks[5].y - landmarks[0].y, z: landmarks[5].z - landmarks[0].z };
+        const v2 = { x: landmarks[17].x - landmarks[0].x, y: landmarks[17].y - landmarks[0].y, z: landmarks[17].z - landmarks[0].z };
+        const normal = { x: v1.y * v2.z - v1.z * v2.y, y: v1.z * v2.x - v1.x * v2.z, z: v1.x * v2.y - v1.y * v2.x };
         const length = Math.sqrt(normal.x ** 2 + normal.y ** 2 + normal.z ** 2);
-        return -normal.z / length;
+        return -normal.z / (length + 0.0001);
       }
 
       function onResults(results) {
-        // --- 核心改動：自適應畫布大小 ---
-        if (
-          canvasElement.width !== results.image.width ||
-          canvasElement.height !== results.image.height
-        ) {
-          canvasElement.width = results.image.width;
-          canvasElement.height = results.image.height;
-        }
-
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        canvasCtx.drawImage(
-          results.image,
-          0,
-          0,
-          canvasElement.width,
-          canvasElement.height,
-        );
-
-        const statusEl = document.getElementById("status");
-        const W = canvasElement.width;
-        const H = canvasElement.height;
-
-        if (
-          results.multiHandLandmarks &&
-          results.multiHandLandmarks.length > 0
-        ) {
-          const landmarks = results.multiHandLandmarks[0];
-          const handedness = results.multiHandedness[0].label;
-
-          // 距離判定基準改為「相對於畫布短邊」的比例，這樣不同手機才一致
-          const dx = (landmarks[0].x - landmarks[9].x) * W;
-          const dy = (landmarks[0].y - landmarks[9].y) * H;
-          const handSize = Math.sqrt(dx * dx + dy * dy);
-
-          const cosTheta = getPalmFacingAngle(landmarks);
-          const isPalmSide =
-            handedness === "Right"
-              ? landmarks[2].x < landmarks[17].x
-              : landmarks[2].x > landmarks[17].x;
-
-          if (!isPalmSide) {
-            statusEl.innerText = "⚠️ 偵測到手背：請翻至掌心";
-            statusEl.style.color = "orange";
-          } else if (cosTheta <= 0.45) {
-            statusEl.innerText = "⚠️ 角度傾斜：請正對鏡頭";
-            statusEl.style.color = "yellow";
-          } else if (handSize < W * 0.15) {
-            // 比例制：手掌小於寬度 15% 算太遠
-            statusEl.innerText = "⚠️ 請靠近一點 (太遠)";
-            statusEl.style.color = "cyan";
-          } else if (handSize > W * 0.5) {
-            // 比例制：手掌大於寬度 50% 算太近
-            statusEl.innerText = "⚠️ 請拿遠一點 (太近)";
-            statusEl.style.color = "red";
-          } else {
-            statusEl.innerText = "✅ 定位成功：神門穴 (HT7)";
-            statusEl.style.color = "#0f0";
-
-            // 座標計算全面改為 W, H 乘數
-            const smX = (landmarks[0].x * 0.65 + landmarks[17].x * 0.35) * W;
-            const smY = landmarks[0].y * H;
-            drawAcupoint(smX, smY, "神門穴");
+        // 動態適配解析度
+        if (results.image) {
+          if (canvasElement.width !== results.image.width || canvasElement.height !== results.image.height) {
+            canvasElement.width = results.image.width;
+            canvasElement.height = results.image.height;
           }
-        } else {
-          statusEl.innerText = "🔍 等待手部偵測...";
-          statusEl.style.color = "#fff";
+
+          canvasCtx.save();
+          canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+          canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+          const statusEl = document.getElementById("status");
+          const W = canvasElement.width;
+          const H = canvasElement.height;
+
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+            const handedness = results.multiHandedness[0].label;
+
+            const dx = (landmarks[0].x - landmarks[9].x) * W;
+            const dy = (landmarks[0].y - landmarks[9].y) * H;
+            const handSize = Math.sqrt(dx * dx + dy * dy);
+            const cosTheta = getPalmFacingAngle(landmarks);
+            
+            // 手機端鏡像修正判斷
+            const isPalmSide = handedness === "Right" ? landmarks[2].x < landmarks[17].x : landmarks[2].x > landmarks[17].x;
+
+            if (!isPalmSide) {
+              statusEl.innerText = "⚠️ 偵測到手背：請翻至掌心";
+              statusEl.style.color = "orange";
+            } else if (cosTheta <= 0.4) {
+              statusEl.innerText = "⚠️ 角度過斜";
+              statusEl.style.color = "yellow";
+            } else if (handSize < W * 0.12) {
+              statusEl.innerText = "⚠️ 太遠";
+              statusEl.style.color = "cyan";
+            } else {
+              statusEl.innerText = "✅ 定位成功：神門穴 (HT7)";
+              statusEl.style.color = "#0f0";
+              const smX = (landmarks[0].x * 0.65 + landmarks[17].x * 0.35) * W;
+              const smY = landmarks[0].y * H;
+              drawAcupoint(smX, smY, "神門穴");
+            }
+          }
+          canvasCtx.restore();
         }
-        canvasCtx.restore();
       }
 
       function drawAcupoint(x, y, label) {
-        const pulse = 12 + Math.sin(Date.now() / 200) * 3;
+        const pulse = 15 + Math.sin(Date.now() / 200) * 4;
         canvasCtx.shadowBlur = 20;
         canvasCtx.shadowColor = "red";
         canvasCtx.fillStyle = "red";
@@ -161,19 +112,28 @@
         canvasCtx.fill();
         canvasCtx.shadowBlur = 0;
         canvasCtx.fillStyle = "#fff";
-        canvasCtx.font = `bold ${Math.round(canvasElement.width / 30)}px Arial`;
-        canvasCtx.fillText(label, x - 30, y + 50);
+        canvasCtx.font = `bold ${Math.round(canvasElement.width/20)}px Arial`;
+        canvasCtx.fillText(label, x - 40, y + 60);
       }
 
+      // 核心修正：加入更強健的相機啟動邏輯
       const camera = new Camera(videoElement, {
         onFrame: async () => {
           await hands.send({ image: videoElement });
         },
-        // 不指定固定寬高，讓它根據手機鏡頭自動調整
-        width: undefined,
-        height: undefined,
+        // 明確定義手機端的相機偏好
+        facingMode: 'user', // 強制前鏡頭自拍模式
+        width: 1280, // 請求高解析度，但會由瀏覽器自動縮放
+        height: 720
       });
-      camera.start();
+
+      // 執行啟動並處理報錯
+      camera.start().then(() => {
+          document.getElementById('status').innerText = "🔍 正在尋找手掌...";
+      }).catch(err => {
+          document.getElementById('status').innerText = "❌ 相機錯誤: " + err;
+          console.error(err);
+      });
     </script>
   </body>
 </html>
