@@ -2,7 +2,11 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>神門穴定位 - 距離與角度雙重監控版</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>神門穴定位 - 手機全自適應版</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
@@ -10,29 +14,33 @@
         background: #000;
         color: #0f0;
         text-align: center;
-        font-family: "Segoe UI", monospace;
+        font-family: sans-serif;
         margin: 0;
         overflow: hidden;
       }
       #status {
-        padding: 15px;
-        background: rgba(0, 40, 0, 0.9);
+        position: absolute;
+        top: 0;
+        width: 100%;
+        z-index: 10;
+        padding: 12px 0;
+        background: rgba(0, 40, 0, 0.8);
         border-bottom: 2px solid #f00;
-        font-size: 1.1em;
-        transition: color 0.3s ease;
+        font-size: 14px;
       }
+      /* 關鍵：讓畫布填滿螢幕但不變形 */
       canvas {
-        border-radius: 0 0 20px 20px;
-        width: 95vw;
-        max-width: 800px;
-        box-shadow: 0 0 20px rgba(255, 0, 0, 0.2);
+        display: block;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover; /* 就像手機相機 App 一樣填滿 */
       }
     </style>
   </head>
   <body>
-    <div id="status">系統校準中：請正對手掌</div>
-    <video id="input_video" hidden></video>
-    <canvas id="output_canvas" width="640" height="480"></canvas>
+    <div id="status">正在同步手機鏡頭...</div>
+    <video id="input_video" hidden playsinline></video>
+    <canvas id="output_canvas"></canvas>
 
     <script>
       const videoElement = document.getElementById("input_video");
@@ -47,13 +55,10 @@
       hands.setOptions({
         maxNumHands: 1,
         modelComplexity: 1,
-        minDetectionConfidence: 0.8,
-        minTrackingConfidence: 0.8,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7,
       });
 
-      hands.onResults(onResults);
-
-      // 1. 法向量夾角計算
       function getPalmFacingAngle(landmarks) {
         const v1 = {
           x: landmarks[5].x - landmarks[0].x,
@@ -75,6 +80,15 @@
       }
 
       function onResults(results) {
+        // --- 核心改動：自適應畫布大小 ---
+        if (
+          canvasElement.width !== results.image.width ||
+          canvasElement.height !== results.image.height
+        ) {
+          canvasElement.width = results.image.width;
+          canvasElement.height = results.image.height;
+        }
+
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
         canvasCtx.drawImage(
@@ -86,6 +100,8 @@
         );
 
         const statusEl = document.getElementById("status");
+        const W = canvasElement.width;
+        const H = canvasElement.height;
 
         if (
           results.multiHandLandmarks &&
@@ -94,80 +110,68 @@
           const landmarks = results.multiHandLandmarks[0];
           const handedness = results.multiHandedness[0].label;
 
-          // --- A. 距離判定 (寬鬆設定) ---
-          // 計算手腕(0)到中指根部(9)的像素距離
-          const dx = (landmarks[0].x - landmarks[9].x) * 640;
-          const dy = (landmarks[0].y - landmarks[9].y) * 480;
+          // 距離判定基準改為「相對於畫布短邊」的比例，這樣不同手機才一致
+          const dx = (landmarks[0].x - landmarks[9].x) * W;
+          const dy = (landmarks[0].y - landmarks[9].y) * H;
           const handSize = Math.sqrt(dx * dx + dy * dy);
 
-          // --- B. 角度判定 ---
           const cosTheta = getPalmFacingAngle(landmarks);
-
-          // --- C. 正反判定 ---
-          const thumbBase = landmarks[2];
-          const pinkyBase = landmarks[17];
           const isPalmSide =
             handedness === "Right"
-              ? thumbBase.x < pinkyBase.x
-              : thumbBase.x > pinkyBase.x;
+              ? landmarks[2].x < landmarks[17].x
+              : landmarks[2].x > landmarks[17].x;
 
-          // --- 綜合判斷邏輯 ---
           if (!isPalmSide) {
             statusEl.innerText = "⚠️ 偵測到手背：請翻至掌心";
             statusEl.style.color = "orange";
-          } else if (cosTheta <= 0.5) {
-            // 角度放寬到約 60 度
+          } else if (cosTheta <= 0.45) {
             statusEl.innerText = "⚠️ 角度傾斜：請正對鏡頭";
             statusEl.style.color = "yellow";
-          } else if (handSize < 80) {
-            // 寬鬆的遠距離界限
+          } else if (handSize < W * 0.15) {
+            // 比例制：手掌小於寬度 15% 算太遠
             statusEl.innerText = "⚠️ 請靠近一點 (太遠)";
             statusEl.style.color = "cyan";
-          } else if (handSize > 300) {
-            // 寬鬆的近距離界限
+          } else if (handSize > W * 0.5) {
+            // 比例制：手掌大於寬度 50% 算太近
             statusEl.innerText = "⚠️ 請拿遠一點 (太近)";
             statusEl.style.color = "red";
           } else {
-            // 通過所有檢查，顯示穴位
             statusEl.innerText = "✅ 定位成功：神門穴 (HT7)";
             statusEl.style.color = "#0f0";
 
-            const smX = (landmarks[0].x * 0.65 + landmarks[17].x * 0.35) * 640;
-            const smY = landmarks[0].y * 480;
-            drawAcupoint(smX, smY, "神門穴 (HT7)");
+            // 座標計算全面改為 W, H 乘數
+            const smX = (landmarks[0].x * 0.65 + landmarks[17].x * 0.35) * W;
+            const smY = landmarks[0].y * H;
+            drawAcupoint(smX, smY, "神門穴");
           }
         } else {
-          statusEl.innerText = "🔍 等待手部進入偵測區域...";
+          statusEl.innerText = "🔍 等待手部偵測...";
           statusEl.style.color = "#fff";
         }
         canvasCtx.restore();
       }
 
       function drawAcupoint(x, y, label) {
-        // 呼吸效果
-        const pulse = 10 + Math.sin(Date.now() / 200) * 2;
+        const pulse = 12 + Math.sin(Date.now() / 200) * 3;
         canvasCtx.shadowBlur = 20;
         canvasCtx.shadowColor = "red";
         canvasCtx.fillStyle = "red";
         canvasCtx.beginPath();
         canvasCtx.arc(x, y, pulse, 0, Math.PI * 2);
         canvasCtx.fill();
-
         canvasCtx.shadowBlur = 0;
         canvasCtx.fillStyle = "#fff";
-        canvasCtx.font = "bold 20px Arial";
-        canvasCtx.strokeStyle = "#000";
-        canvasCtx.lineWidth = 3;
-        canvasCtx.strokeText(label, x - 50, y + 45);
-        canvasCtx.fillText(label, x - 50, y + 45);
+        canvasCtx.font = `bold ${Math.round(canvasElement.width / 30)}px Arial`;
+        canvasCtx.fillText(label, x - 30, y + 50);
       }
 
       const camera = new Camera(videoElement, {
         onFrame: async () => {
           await hands.send({ image: videoElement });
         },
-        width: 640,
-        height: 480,
+        // 不指定固定寬高，讓它根據手機鏡頭自動調整
+        width: undefined,
+        height: undefined,
       });
       camera.start();
     </script>
